@@ -1,2 +1,1 @@
-# chingaderas
-Chingaderas
+Repositorio para hacerle root a esta fregadera
