@@ -1,0 +1,31 @@
+[Version]
+Signature = "$Windows NT$"
+Class = USBDevice
+ClassGuid = {88bae032-5a81-49f0-bc3d-a4ff138216d6}
+Provider = %ProviderName%
+DriverVer = 06/13/2026,1.0.2.0
+
+[Manufacturer]
+%ManufacturerName% = LanixDevice, NTamd64
+
+[LanixDevice.NTamd64]
+%AndroidBootloaderInterface% = AndroidBootloaderInterface.NTamd64, USB\VID_18D1&PID_D00D
+
+[AndroidBootloaderInterface.NTamd64]
+Include = winusb.inf
+Needs = WINUSB.NT
+
+[AndroidBootloaderInterface.NTamd64.Services]
+Include = winusb.inf
+Needs = WINUSB.NT.Services
+
+[AndroidBootloaderInterface.NTamd64.HW]
+AddReg = AndroidBootloaderInterface.NTamd64.HW.Reg
+
+[AndroidBootloaderInterface.NTamd64.HW.Reg]
+HKR,,DeviceInterfaceGUIDs,0x00010000,"{F72FE0D4-CBCB-407D-8814-9ED673D0DD6B}"
+
+[Strings]
+ProviderName = "Lanix Custom"
+ManufacturerName = "Rockchip Android Device"
+AndroidBootloaderInterface = "Android Bootloader Interface (Lanix RX10V6)"
