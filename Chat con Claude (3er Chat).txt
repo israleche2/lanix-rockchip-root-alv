@@ -1,0 +1,1114 @@
+
+Claude terminó la respuesta
+Reporte de Estado: Proyecto Lanix Ilium RX10V61. Objetivos del ProyectoEl propósito central es lograr la modificación profunda del software del dispositivo Lanix Ilium RX10V6, lo cual implica tres metas principales:Desbloqueo del Bootloader: Para permitir la modificación de las particiones del sistema.Acceso Root: Para obtener privilegios administrativos sobre el sistema operativo Android.Instalación de Imagen Personalizada: Flashear un firmware distinto al original (Custom ROM o GSI).2. Estado Hardware IdentificadoA través del diagnóstico técnico, hemos confirmado la base del dispositivo:Procesador (SoC): Rockchip RK3562. La lectura ReadChipInfo confirmó exitosamente este modelo.Memoria Flash: Memoria eMMC Samsung de 64GB, detectada correctamente mediante ReadFlashInfo.Estado del Dispositivo: El dispositivo responde correctamente al modo MaskROM y mantiene una conexión USB estable con la PC.3. Progreso Técnico y ObstáculosLogros:Se ha configurado un entorno de compilación mediante WSL (Ubuntu) para gestionar el repositorio rkbin.Se ha logrado compilar cargadores (loaders) personalizados utilizando la herramienta boot_merger.Se ha descartado con éxito el fallo de comunicación o de puerto USB (la carga del loader inicial ocurre).Obstáculos:El dispositivo presenta un error constante de "Download Boot Fail: please check ddr" al intentar ejecutar el loader.Esto indica que, aunque el procesador acepta el binario, falla al intentar "entrenar" o inicializar la memoria RAM (DDR) con los perfiles estándar disponibles (1332MHz, 1056MHz, 920MHz y perfiles WDQS).4. Inventario de Herramientas y ArchivosTodo el trabajo se centraliza en el siguiente directorio: C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\.HerramientaUbicaciónFunciónRKDevTool v2.96WindowsInterfaz de flasheo y comunicación con el dispositivo.rkbin Repository.../rkbin-master/Contiene los archivos .bin de los loaders y scripts de compilación.boot_merger.../tools/Herramienta en WSL para ensamblar el archivo loader final.RK3562MINIALL.ini.../RKBOOT/Archivo de configuración que define qué perfil DDR utilizar.Prompt sugerido para ClaudePuedes copiar y pegar este prompt en una nueva conversación con Claude para obtener asistencia de expertos en ingeniería embebida o desarrollo de firmware Rockchip:"Actúo como desarrollador de firmware para dispositivos Android basados en Rockchip. Estoy trabajando en la recuperación y modificación de una tablet Lanix Ilium RX10V6 que utiliza un SoC RK3562.Situación técnica:El dispositivo entra correctamente en modo MaskROM.He logrado compilar loaders personalizados utilizando rkbin y boot_merger en WSL.Al intentar flashear el loader mediante RKDevTool, recibo el error 'Download Boot Fail: please check ddr'.He intentado diversos perfiles DDR incluidos en el repositorio rkbin (1332MHz, 1056MHz, 920MHz y variantes WDQS), pero todos resultan en el mismo error de inicialización de memoria.Mi hipótesis: La placa OEM de Lanix utiliza una configuración de inicialización DDR propietaria o un perfil de señalización que no está incluido en los binarios genéricos de rkbin.Solicitud:¿Qué estrategias de bajo nivel puedo seguir para identificar el perfil DDR correcto cuando los perfiles estándar fallan? ¿Es posible extraer la información de entrenamiento DDR del firmware de fábrica o existe alguna herramienta para realizar un 'DDR scan' sobre el hardware cuando se tiene acceso a MaskROM? ¿Qué implicaciones tiene el error 'please check ddr' en términos de voltajes o configuraciones de PCB?"
+
+Mostrar más
+11:28 a.m.
+
+Desmenuzó problema DDR y propuso estrategias de extracción firmware
+Desmenuzó problema DDR y propuso estrategias de extracción firmware
+The user is sharing a detailed status report on their Lanix Ilium RX10V6 rooting project and includes a "suggested prompt for Claude." They want me to respond as an expert in Rockchip firmware/embedded engineering. Let me address the technical questions directly.
+
+The key technical questions are:
+
+Strategies to identify the correct DDR profile when standard ones fail
+Can DDR training info be extracted from factory firmware? Any DDR scan tools for MaskROM access?
+What does "please check ddr" imply about voltages or PCB configurations?
+The "Download Boot Fail: please check ddr" error indicates the DDR initialization is failing during memory training—this involves impedance calibration, read/write leveling, DQ bit deskew, and CA training on the LPDDR4/LPDDR4X interface. Generic profiles often fail because the OEM uses different LPDDR4 chips with unique timing parameters or runs at different frequencies than what's in the standard rkbin binaries.
+The most practical approach is to extract the working DDR initialization blob from the factory firmware itself. If you can access the OEM's firmware update packages (usually available on the manufacturer's website in .img format for Rockchip devices) or dump the factory firmware via rkdeveloptool in MaskROM mode, you can pull out the miniloader and DDR init parameters that actually work with the hardware.
+
+There's a catch though — in MaskROM mode, the chip communicates over USB without needing DDR initialized yet, but downloading a loader is what triggers DDR setup. Some Rockchip chips support raw flash reads in MaskROM through specific USB commands, which would let you read the eMMC/NAND before DDR init happens, though this is device-dependent. For the RK3562 specifically, rkdeveloptool might be able to read the first sectors of flash directly.
+
+…
+
+Mostrar más
+Listo
+Análisis Técnico: "Download Boot Fail: please check ddr" — RK3562
+Excelente documentación del estado del proyecto. El error que describes es uno de los más frustrantes en el ecosistema Rockchip porque es genérico pero las causas son muy específicas al hardware. Voy a diseccionar cada pregunta en profundidad.
+
+¿Qué significa realmente "please check ddr"?
+Este error no es un fallo de comunicación USB ni de protocolo — el SoC recibió y ejecutó el binario correctamente. El fallo ocurre durante la fase de entrenamiento DDR dentro del blob ddr.bin, que internamente ejecuta esta secuencia:
+
+1. ZQ Calibration      → Calibración de impedancia del bus
+2. CA Training         → Calibración de Command/Address lines
+3. Write Leveling      → Compensación de skew entre DQ y DQS
+4. Read DQ Bit Deskew  → Alineación de bits individuales de lectura
+5. VREF Training       → Calibración del voltaje de referencia
+Si cualquiera de estos pasos falla, el loader aborta con ese mensaje. Los perfiles genéricos de rkbin fallan porque están compilados para configuraciones de referencia de Rockchip, no para el PCB específico de Lanix.
+
+Estrategia 1 (Mayor prioridad): Extraer el loader del firmware OEM
+Este es el camino más directo y tiene alta probabilidad de éxito. El MiniLoaderAll.bin oficial de Lanix ya contiene los parámetros DDR correctos para tu PCB.
+
+Vías de obtención del firmware:
+Opción A — Leer la eMMC directamente desde MaskROM (sin DDR)
+
+En MaskROM, el RK3562 puede comunicarse por USB sin necesitar RAM inicializada. Algunos comandos de rkdeveloptool operan directamente sobre la flash:
+
+bash
+# Intentar leer el IDB (Initial Data Block) — contiene el miniloader
+rkdeveloptool rl 0 0x2000 factory_idb.bin
+
+# Alternativa: leer los primeros 4MB de la eMMC
+rkdeveloptool rl 0 0x8000 flash_head.bin
+⚠️ Condición: Estos comandos solo funcionan si el chip puede acceder a la eMMC sin DDR — posible en RK3562 porque el ROM puede hacer lecturas básicas de flash via SPI/EMMC en modo raw. Si falla, rkdeveloptool reportará Read LBA failed.
+
+Opción B — Firmware de actualización OEM
+
+Busca en estas fuentes en orden de prioridad:
+
+Fuente	Qué buscar
+4pda.to	"Lanix RX10V6 firmware" o "RK3562 firmware"
+gsm-forum.com	Sección Rockchip / China tablets
+Sitio oficial Lanix	Sección soporte → descargas
+Foros XDA RK3562	Puede haber dumps de usuarios con el mismo SoC
+El paquete buscado es un .img o un .zip de Rockchip que al descomprimirse contenga un archivo llamado exactamente MiniLoaderAll.bin. Ese archivo es todo lo que necesitas para resolver el problema DDR.
+
+Estrategia 2: Identificar el chip LPDDR4 físicamente
+Abre el dispositivo y localiza el chip de RAM — en tablets RK3562 suele estar en Package-on-Package (PoP) directamente sobre el SoC, o como chip discreto cercano. Lee el marking:
+
+Ejemplo Samsung LPDDR4X:
+K4UBE3D4AA-MGCL  →  8GB LPDDR4X, 4266Mbps, BGA
+│    │    │  │
+│    │    │  └─ Revision
+│    │    └──── Speed grade (MG = 4266Mbps)
+│    └─────────  Density code
+└──────────────  Serie (LPDDR4X)
+Con el part number exacto puedes:
+
+Buscar el datasheet y verificar voltajes y timing esperados
+Comparar con los parámetros hardcodeados en los .ini de rkbin
+En algunos casos, Rockchip tiene perfiles específicos por fabricante de DRAM
+Estrategia 3: Modificar el perfil DDR en rkbin (avanzado)
+Los archivos .ini en /RKBOOT/ como RK3562MINIALL.ini apuntan a binarios precompilados. Sin embargo, hay variables que sí puedes controlar:
+
+Revisar el archivo INI actual:
+ini
+[CHIP_NAME]
+NAME=RK3562
+
+[LOADER_ENTRY0]
+LOADER_ENTRY=FlashData          ; → apunta al ddr.bin
+...
+Intentar perfiles alternativos:
+En el repositorio rkbin, bajo bin/rk35/, deberías encontrar variantes:
+
+bash
+ls bin/rk35/ | grep -i "3562.*ddr"
+# Ejemplo de nombres que podrías ver:
+# rk3562_ddr_1056MHz_v1.09.bin
+# rk3562_ddr_1056MHz_lp4_v1.09.bin
+# rk3562_ddr_800MHz_v1.xx.bin   ← frecuencia más baja = más tolerante
+Prueba en este orden de frecuencia (de más bajo a más alto):
+
+800MHz → 1056MHz → 1332MHz → 1600MHz
+Frecuencias más bajas tienen timing más relajado y mayor tolerancia a variaciones de PCB. Si ninguna funciona, el problema es más profundo (voltaje o configuración de rango/densidad).
+
+Estrategia 4: Análisis de voltajes y señales (diagnóstico de PCB)
+El error "please check ddr" puede indicar problemas de hardware:
+
+Voltajes críticos para LPDDR4 en RK3562:
+Rail	Voltaje nominal	Rango tolerado
+VDDQ (I/O DDR)	0.6V	±3%
+VDD2 (core DDR)	1.1V	±5%
+VCCIO1 (pads RK)	1.8V	±5%
+Estos los controla el PMIC (chip de gestión de energía). Si el OEM configuró el PMIC con valores no estándar, los loaders genéricos asumen voltajes que el hardware no entrega.
+
+Sin esquemático del PCB de Lanix es difícil verificar esto sin un multímetro, pero si tienes acceso al hardware y equipo de medición básico, medir VDDQ durante el intento de boot (con osciloscopio o multímetro de aguja rápida) puede confirmar si el PMIC está respondiendo.
+
+Flujo de diagnóstico recomendado
+¿Tienes firmware OEM de Lanix RX10V6?
+        │
+       SÍ → Extraer MiniLoaderAll.bin → Flashear directamente → ✅ Resuelto
+        │
+        NO
+        │
+        ├─→ Intentar rkdeveloptool rl en MaskROM para dump de flash
+        │       │
+        │      ¿Funciona? → Sí → Extraer miniloader de offset 0x8000
+        │                   No → Continuar
+        │
+        ├─→ Probar ddr.bin de 800MHz (frecuencia más baja disponible)
+        │       │
+        │      ¿Boot OK? → Sí → ✅ Usar ese perfil como base
+        │                  No → Continuar
+        │
+        └─→ Identificar chip DRAM físicamente → Buscar perfil específico
+                │
+               Si nada funciona → Se requiere firmware OEM obligatoriamente
+Resumen ejecutivo
+El problema central es que Lanix usa parámetros DDR propietarios no presentes en rkbin genérico. La solución de mayor probabilidad de éxito es conseguir el MiniLoaderAll.bin oficial — ya sea desde un paquete de firmware OEM, o extrayéndolo directamente de la eMMC via MaskROM con rkdeveloptool rl.
+
+Si consigues ese archivo, el resto del pipeline (bootloader unlock, root, GSI) se desbloquea completamente porque ya tienes el loader que sabe cómo inicializar el hardware específico de esta tablet.
+
+¿Tienes acceso físico al PCB para leer el marking del chip de RAM, o ya intentaste el comando rl en MaskROM?
+
+Dame los comandos a seguir, tengo una ventana con mi wsl, powershell y powershell en admin
+
+11:31 a.m.
+
+Pensó durante 17s
+Pensó durante 17s
+Aquí va el flujo completo de comandos, ordenado por ventana y prioridad.
+
+
+
+PASO 1 — WSL: Inventario de bins disponibles
+bash
+# Ir al repositorio
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+
+# Ver todos los bins DDR para RK3562
+ls bin/rk35/ | grep -i "3562"
+
+# Ver el INI actual
+cat RKBOOT/RK3562MINIALL.ini
+
+# Ver qué versiones de ddr.bin existen y sus tamaños
+ls -lh bin/rk35/*3562*ddr*
+Copia y pega la salida aquí — necesito ver exactamente qué perfiles tienes disponibles.
+
+PASO 2 — PowerShell Admin: Instalar usbipd-win
+Esto es necesario para que WSL pueda ver el dispositivo USB directamente.
+
+powershell
+# Verificar si ya está instalado
+usbipd --version
+
+# Si no está instalado, instalarlo con winget
+winget install --interactive --exact dorssel.usbipd-win
+
+# Luego listar dispositivos USB (con dispositivo conectado en MaskROM)
+usbipd list
+Busca en la lista un dispositivo que diga "RK3562", "Rockchip" o similar. Anota el BUSID (ejemplo: 2-3).
+
+PASO 3 — PowerShell Admin: Adjuntar USB a WSL
+powershell
+# Reemplaza 2-3 con el BUSID real de tu dispositivo
+usbipd bind --busid 2-3
+usbipd attach --wsl --busid 2-3
+
+# Verificar que quedó adjuntado
+usbipd list
+# Debe mostrar "Attached" en la columna STATE
+PASO 4 — WSL: Instalar rkdeveloptool CLI
+bash
+# Dependencias
+sudo apt-get update
+sudo apt-get install -y libudev-dev libusb-1.0-0-dev \
+    dh-autoreconf pkg-config libssl-dev
+
+# Verificar que el dispositivo es visible en WSL
+lsusb | grep -i rock
+# Debe aparecer algo como: Bus 001 Device 002: ID 2207:350b Fuzhou Rockchip Electronics
+
+# Clonar y compilar rkdeveloptool
+git clone https://github.com/rockchip-linux/rkdeveloptool.git
+cd rkdeveloptool
+autoreconf -i
+./configure
+make
+sudo make install
+
+# Verificar instalación
+rkdeveloptool --version
+PASO 5 — WSL: Leer flash en modo MaskROM
+Con el dispositivo en MaskROM y el USB adjuntado a WSL:
+
+bash
+# Confirmar que lo detecta
+rkdeveloptool ld
+# Debe mostrar: DevNo=1 Vid=0x2207,Pid=0x350b,LocationID=...
+
+# INTENTO 1: Leer los primeros 4MB de la eMMC (sin DDR)
+rkdeveloptool rl 0 0x2000 idbloader_dump.bin
+ls -lh idbloader_dump.bin
+
+# Si ese funciona, leer más datos (el miniloader completo)
+rkdeveloptool rl 0 0x8000 flash_head_16mb.bin
+
+# Copiar el resultado a Windows para inspeccionarlo
+cp idbloader_dump.bin /mnt/c/Users/Victoria/Downloads/
+cp flash_head_16mb.bin /mnt/c/Users/Victoria/Downloads/
+PASO 6 — RKDevTool: Alternativa si el dump falla
+Si rkdeveloptool rl retorna error, vuelve a RKDevTool en Windows y prueba el perfil de menor frecuencia disponible. En WSL primero:
+
+bash
+# Volver al repositorio rkbin
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+
+# Ver qué variante de 800MHz existe (o la más baja disponible)
+ls bin/rk35/ | grep -i "3562" | sort
+
+# Editar el INI para apuntar al bin de menor frecuencia
+# (sustituye el nombre del archivo según lo que encontraste arriba)
+nano RKBOOT/RK3562MINIALL.ini
+Dentro del .ini, la línea que dice FlashData apunta al ddr.bin. Cámbiala al archivo de menor frecuencia y recompila:
+
+bash
+# Recompilar el loader con el nuevo perfil DDR
+cd tools/
+./boot_merger ../RKBOOT/RK3562MINIALL.ini
+
+# El output estará como MiniLoaderAll.bin en el directorio raíz
+ls -lh ../MiniLoaderAll.bin
+Luego en RKDevTool carga ese nuevo MiniLoaderAll.bin e intenta el boot.
+
+PASO 7 — WSL: Analizar el dump (si PASO 5 tuvo éxito)
+bash
+# Instalar binwalk para inspeccionar el dump
+pip3 install binwalk --break-system-packages
+
+# Analizar la estructura del dump
+binwalk idbloader_dump.bin
+
+# Buscar la firma del miniloader Rockchip dentro del dump
+hexdump -C flash_head_16mb.bin | grep -A2 "RKNS\|RK3\|BOOT"
+
+# Extraer el miniloader embebido (offset varía, binwalk te lo dirá)
+dd if=flash_head_16mb.bin of=miniloader_extracted.bin bs=1 skip=OFFSET count=SIZE
+Orden de prioridad
+Prioridad	Acción	Ventana	Resultado esperado
+1	Ejecutar pasos 1-5	WSL + PS Admin	Dump de flash con miniloader OEM
+2	Si falla el dump	RKDevTool	Probar DDR 800MHz recompilado
+3	Buscar firmware OEM	Navegador	MiniLoaderAll.bin oficial de Lanix
+Empieza con el Paso 1 y pega aquí el output del ls bin/rk35/ | grep -i "3562" para que veamos exactamente qué perfiles tienes.
+
+Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos los derechos reservados.
+Instale la versión más reciente de PowerShell para obtener nuevas características y mejoras. https://aka.ms/PSWindows
+PS C:\Users\Victoria> wsl
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria$ # Ir al repositorio
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+# Ver todos los bins DDR para RK3562
+ls bin/rk35/ | grep -i "3562"
+# Ver el INI actual
+cat RKBOOT/RK3562MINIALL.ini
+# Ver qué versiones de ddr.bin existen y sus tamaños
+ls -lh bin/rk35/*3562*ddr*
+rk3562_bl31_v1.23.elf
+rk3562_bl32_v1.08.bin
+rk3562_ddr_1056MHz_ultra_v1.06.bin
+rk3562_ddr_1056MHz_v1.09.bin
+rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+rk3562_ddr_1332MHz_D4_LP4_4x_eyescan_v1.09.bin
+rk3562_ddr_1332MHz_v1.09.bin
+rk3562_ddr_1392MHz_v1.09.bin
+rk3562_ddr_1560MHz_v1.09.bin
+rk3562_ddr_920MHz_v1.09.bin
+rk3562_mcu_v1.00.bin
+rk3562_spl_v1.07.bin
+rk3562_usbplug_v1.04.bin
+[CHIP_NAME]
+NAME=RK3562
+[VERSION]
+MAJOR=1
+MINOR=4
+[CODE471_OPTION]
+NUM=1
+Path1=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+Sleep=1
+[CODE472_OPTION]
+NUM=1
+Path1=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+[LOADER_OPTION]
+NUM=2
+LOADER1=FlashData
+LOADER2=FlashBoot
+FlashData=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+FlashBoot=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+[OUTPUT]
+PATH=rk3562_spl_loader_v1.09.107.bin
+[SYSTEM]
+NEWIDB=true
+[FLAG]
+471_RC4_OFF=true
+RC4_OFF=true
+CREATE_IDB=true
+-rwxrwxrwx 1 victoria victoria 57K Dec 30 05:41 bin/rk35/rk3562_ddr_1056MHz_ultra_v1.06.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1056MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 55K Dec 30 05:41 bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1332MHz_D4_LP4_4x_eyescan_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1332MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1392MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1560MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master$
+
+Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos los derechos reservados.
+Instale la versión más reciente de PowerShell para obtener nuevas características y mejoras. https://aka.ms/PSWindows
+PS C:\WINDOWS\system32> # Reemplaza 2-3 con el BUSID real de tu dispositivo
+PS C:\WINDOWS\system32> usbipd bind --busid 2-3
+usbipd: error: There is no device with busid '2-3'.
+PS C:\WINDOWS\system32> usbipd attach --wsl --busid 2-3
+usbipd: error: There is no device with busid '2-3'.
+PS C:\WINDOWS\system32>
+PS C:\WINDOWS\system32> # Verificar que quedó adjuntado
+PS C:\WINDOWS\system32> usbipd list
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+1-1    2207:350d  Rockusb Device                                                Not shared
+1-4    04f2:b6e4  HP TrueVision HD Camera                                       Not shared
+1-5    0bda:b00c  Realtek Bluetooth 5 Adapter                                   Not shared
+Persisted:
+GUID                                  DEVICE
+PS C:\WINDOWS\system32> # Debe mostrar "Attached" en la columna STATE
+PS C:\WINDOWS\system32>
+
+Mostrar más
+11:36 a.m.
+
+Identified correct USB device and diagnosed DDR frequency constraints
+Identified correct USB device and diagnosed DDR frequency constraints
+Excelente output. Tengo tres hallazgos críticos:
+
+1. El BUSID correcto es 1-1, no 2-3 — por eso falló.
+2. El VID:PID 2207:350d confirma que el dispositivo está en MaskROM, comunicación activa.
+3. Ya estás usando 920MHz — el más bajo disponible. Pero hay un bin D3_LP3 que nunca has probado y que podría ser la clave si el chip RAM es LPDDR3.
+
+AHORA — PowerShell Admin: BUSID correcto
+powershell
+# Bind con el busid real
+usbipd bind --busid 1-1
+
+# Adjuntar a WSL
+usbipd attach --wsl --busid 1-1
+
+# Verificar — debe decir "Attached"
+usbipd list
+LUEGO — WSL: Instalar dependencias y rkdeveloptool
+bash
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+
+# Verificar que WSL ve el dispositivo
+lsusb | grep -i 2207
+
+# Instalar dependencias
+sudo apt-get update && sudo apt-get install -y \
+    libudev-dev libusb-1.0-0-dev dh-autoreconf \
+    pkg-config libssl-dev git build-essential
+
+# Clonar y compilar rkdeveloptool
+cd ~
+git clone https://github.com/rockchip-linux/rkdeveloptool.git
+cd rkdeveloptool
+autoreconf -i
+./configure
+make -j$(nproc)
+sudo make install
+
+# Confirmar que detecta el dispositivo
+sudo rkdeveloptool ld
+Debe mostrar algo como DevNo=1 Vid=0x2207,Pid=0x350d.
+
+LUEGO — WSL: Intentar dump de flash
+bash
+# Intento de lectura directa sin DDR (primeros 4MB)
+sudo rkdeveloptool rl 0 0x2000 dump_idb.bin
+ls -lh dump_idb.bin
+
+# Si funciona, leer los primeros 16MB (contiene miniloader completo)
+sudo rkdeveloptool rl 0 0x8000 dump_flash_head.bin
+
+# Copiar a Windows
+cp dump_idb.bin /mnt/c/Users/Victoria/Downloads/
+cp dump_flash_head.bin /mnt/c/Users/Victoria/Downloads/
+PARALELO — WSL: Probar el bin LP3 (hallazgo importante)
+Tienes rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin que pesa 55KB vs 58KB de los otros — código diferente, diseñado para LPDDR3, no LPDDR4. Si el chip RAM de Lanix es LPDDR3, este es el perfil correcto.
+
+bash
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+
+# Hacer copia de seguridad del INI actual
+cp RKBOOT/RK3562MINIALL.ini RKBOOT/RK3562MINIALL.ini.bak
+
+# Editar el INI para apuntar al bin LP3
+sed -i 's|rk3562_ddr_920MHz_v1.09.bin|rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin|g' \
+    RKBOOT/RK3562MINIALL.ini
+
+# Verificar que el cambio quedó bien
+cat RKBOOT/RK3562MINIALL.ini | grep -i "ddr\|Path"
+
+# Recompilar el loader
+cd tools/
+./boot_merger ../RKBOOT/RK3562MINIALL.ini
+
+# Verificar que se generó el nuevo loader
+ls -lh ../rk3562_spl_loader_v1.09.107.bin
+
+# Copiar a Windows para usarlo en RKDevTool
+cp ../rk3562_spl_loader_v1.09.107.bin \
+    "/mnt/c/Users/Victoria/Downloads/rk3562_loader_LP3_test.bin"
+Luego en RKDevTool, carga rk3562_loader_LP3_test.bin como el loader e intenta el boot.
+
+Resumen de lo que está pasando
+Observación	Significado
+2207:350d detectado	MaskROM activo, comunicación USB OK
+920MHz ya es el más bajo	No hay perfil de menor frecuencia disponible
+Bin D3_LP3 nunca probado	Posible match si la RAM es LPDDR3
+D3_LP3 pesa 55KB vs 58KB	Código diferente, vale la pena probar
+Ejecuta primero el usbipd bind/attach con 1-1 y pega el resultado. Luego continuamos con la compilación del loader LP3 y el dump en paralelo.
+
+Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos los derechos reservados.
+Instale la versión más reciente de PowerShell para obtener nuevas características y mejoras. https://aka.ms/PSWindows
+PS C:\WINDOWS\system32> # Reemplaza 2-3 con el BUSID real de tu dispositivo
+PS C:\WINDOWS\system32> usbipd bind --busid 2-3
+usbipd: error: There is no device with busid '2-3'.
+PS C:\WINDOWS\system32> usbipd attach --wsl --busid 2-3
+usbipd: error: There is no device with busid '2-3'.
+PS C:\WINDOWS\system32>
+PS C:\WINDOWS\system32> # Verificar que quedó adjuntado
+PS C:\WINDOWS\system32> usbipd list
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+1-1    2207:350d  Rockusb Device                                                Not shared
+1-4    04f2:b6e4  HP TrueVision HD Camera                                       Not shared
+1-5    0bda:b00c  Realtek Bluetooth 5 Adapter                                   Not shared
+Persisted:
+GUID                                  DEVICE
+PS C:\WINDOWS\system32> # Debe mostrar "Attached" en la columna STATE
+PS C:\WINDOWS\system32> # Bind con el busid real
+PS C:\WINDOWS\system32> usbipd bind --busid 1-1
+PS C:\WINDOWS\system32>
+PS C:\WINDOWS\system32> # Adjuntar a WSL
+PS C:\WINDOWS\system32> usbipd attach --wsl --busid 1-1
+usbipd: info: Using WSL distribution 'Ubuntu' to attach; the device will be available in all WSL 2 distributions.
+usbipd: info: Loading vhci_hcd module.
+usbipd: info: Detected networking mode 'nat'.
+usbipd: info: Using IP address 172.19.32.1 to reach the host.
+WSL usbip: error: Attach Request for 1-1 failed - Device in error state
+usbipd: error: Failed to attach device with busid '1-1'.
+PS C:\WINDOWS\system32>
+PS C:\WINDOWS\system32> # Verificar  debe decir "Attached"
+PS C:\WINDOWS\system32> usbipd list
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+1-1    0000:0002  Dispositivo USB desconocido (Error de solicitud de descri...  Not shared
+1-4    04f2:b6e4  HP TrueVision HD Camera                                       Not shared
+1-5    0bda:b00c  Realtek Bluetooth 5 Adapter                                   Not shared
+Persisted:
+GUID                                  DEVICE
+0bd1eaab-5922-47cb-8c4d-0cc272bd3e57  Rockusb Device
+PS C:\WINDOWS\system32>
+
+Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos los derechos reservados.
+Instale la versión más reciente de PowerShell para obtener nuevas características y mejoras. https://aka.ms/PSWindows
+PS C:\Users\Victoria> wsl
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria$ # Ir al repositorio
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+# Ver todos los bins DDR para RK3562
+ls bin/rk35/ | grep -i "3562"
+# Ver el INI actual
+cat RKBOOT/RK3562MINIALL.ini
+# Ver qué versiones de ddr.bin existen y sus tamaños
+ls -lh bin/rk35/*3562*ddr*
+rk3562_bl31_v1.23.elf
+rk3562_bl32_v1.08.bin
+rk3562_ddr_1056MHz_ultra_v1.06.bin
+rk3562_ddr_1056MHz_v1.09.bin
+rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+rk3562_ddr_1332MHz_D4_LP4_4x_eyescan_v1.09.bin
+rk3562_ddr_1332MHz_v1.09.bin
+rk3562_ddr_1392MHz_v1.09.bin
+rk3562_ddr_1560MHz_v1.09.bin
+rk3562_ddr_920MHz_v1.09.bin
+rk3562_mcu_v1.00.bin
+rk3562_spl_v1.07.bin
+rk3562_usbplug_v1.04.bin
+[CHIP_NAME]
+NAME=RK3562
+[VERSION]
+MAJOR=1
+MINOR=4
+[CODE471_OPTION]
+NUM=1
+Path1=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+Sleep=1
+[CODE472_OPTION]
+NUM=1
+Path1=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+[LOADER_OPTION]
+NUM=2
+LOADER1=FlashData
+LOADER2=FlashBoot
+FlashData=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+FlashBoot=bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+[OUTPUT]
+PATH=rk3562_spl_loader_v1.09.107.bin
+[SYSTEM]
+NEWIDB=true
+[FLAG]
+471_RC4_OFF=true
+RC4_OFF=true
+CREATE_IDB=true
+-rwxrwxrwx 1 victoria victoria 57K Dec 30 05:41 bin/rk35/rk3562_ddr_1056MHz_ultra_v1.06.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1056MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 55K Dec 30 05:41 bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1332MHz_D4_LP4_4x_eyescan_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1332MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1392MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_1560MHz_v1.09.bin
+-rwxrwxrwx 1 victoria victoria 58K Dec 30 05:41 bin/rk35/rk3562_ddr_920MHz_v1.09.bin
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master$ cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+# Verificar que WSL ve el dispositivo
+lsusb | grep -i 2207
+# Instalar dependencias
+sudo apt-get update && sudo apt-get install -y \
+    libudev-dev libusb-1.0-0-dev dh-autoreconf \
+    pkg-config libssl-dev git build-essential
+# Clonar y compilar rkdeveloptool
+cd ~
+git clone https://github.com/rockchip-linux/rkdeveloptool.git
+cd rkdeveloptool
+autoreconf -i
+./configure
+make -j$(nproc)
+sudo make install
+# Confirmar que detecta el dispositivo
+sudo rkdeveloptool ld
+Command 'lsusb' not found, but can be installed with:
+sudo apt install usbutils
+[sudo: authenticate] Password:
+Get:1 http://security.ubuntu.com/ubuntu resolute-security InRelease [137 kB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute InRelease [136 kB]
+Get:3 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Packages [203 kB]
+Get:4 http://security.ubuntu.com/ubuntu resolute-security/main Translation-en [54.8 kB]
+Get:5 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Components [31.1 kB]
+Get:6 http://security.ubuntu.com/ubuntu resolute-security/main amd64 c-n-f Metadata [3332 B]
+...
+make[2]: Nothing to be done for 'install-data-am'.
+make[2]: Leaving directory '/home/victoria/rkdeveloptool'
+make[1]: Leaving directory '/home/victoria/rkdeveloptool'
+not found any devices!
+victoria@DESKTOP-31CGA41:~/rkdeveloptool$ # Intento de lectura directa sin DDR (primeros 4MB)
+sudo rkdeveloptool rl 0 0x2000 dump_idb.bin
+ls -lh dump_idb.bin
+# Si funciona, leer los primeros 16MB (contiene miniloader completo)
+sudo rkdeveloptool rl 0 0x8000 dump_flash_head.bin
+# Copiar a Windows
+cp dump_idb.bin /mnt/c/Users/Victoria/Downloads/
+cp dump_flash_head.bin /mnt/c/Users/Victoria/Downloads/
+Did not find any rockusb device, please plug device in!
+ls: cannot access 'dump_idb.bin': No such file or directory
+Did not find any rockusb device, please plug device in!
+cp: cannot stat 'dump_idb.bin': No such file or directory
+cp: cannot stat 'dump_flash_head.bin': No such file or directory
+victoria@DESKTOP-31CGA41:~/rkdeveloptool$ cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+# Hacer copia de seguridad del INI actual
+cp RKBOOT/RK3562MINIALL.ini RKBOOT/RK3562MINIALL.ini.bak
+# Editar el INI para apuntar al bin LP3
+sed -i 's|rk3562_ddr_920MHz_v1.09.bin|rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin|g' \
+    RKBOOT/RK3562MINIALL.ini
+# Verificar que el cambio quedó bien
+cat RKBOOT/RK3562MINIALL.ini | grep -i "ddr\|Path"
+# Recompilar el loader
+cd tools/
+./boot_merger ../RKBOOT/RK3562MINIALL.ini
+# Verificar que se generó el nuevo loader
+ls -lh ../rk3562_spl_loader_v1.09.107.bin
+# Copiar a Windows para usarlo en RKDevTool
+cp ../rk3562_spl_loader_v1.09.107.bin \
+    "/mnt/c/Users/Victoria/Downloads/rk3562_loader_LP3_test.bin"
+Path1=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+Path1=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+FlashData=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+FlashBoot=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+PATH=rk3562_spl_loader_v1.09.107.bin
+********boot_merger ver 1.35********
+failed to open bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin, err=2
+failed to open bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin, err=2
+Error:open bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin failed,err=2
+failed to create usbhead.bin for new idb
+-rwxrwxrwx 1 victoria victoria 237K Jun 13 13:25 ../rk3562_spl_loader_v1.09.107.bin
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/tools$
+
+Despues de hacer los comandos que me dijiste ya no me sale el found maskroom device, al conectar la tablet me sale una notificacion de windows de no se reconoce dispositivo USB.
+
+Mostrar más
+11:59 a.m.
+
+Diagnosticó problemas USB, rutas de compilación y estrategia alternativa
+Diagnosticó problemas USB, rutas de compilación y estrategia alternativa
+Hay dos problemas distintos. Los resuelvo en orden.
+
+PROBLEMA 1 — usbipd dañó el estado USB del dispositivo
+El bind puso el Rockchip en un estado de error en Windows. Hay que revertirlo.
+
+PowerShell Admin:
+
+powershell
+# Liberar el dispositivo de usbipd
+usbipd unbind --busid 1-1
+
+# Verificar que quedó liberado
+usbipd list
+Luego desconecta el cable USB de la tablet, espera 5 segundos, y vuelve a conectarla en MaskROM (botón vol+ sostenido al conectar). Después:
+
+powershell
+usbipd list
+# Debe volver a aparecer: 2207:350d  Rockusb Device
+Conclusión importante: usbipd no funciona bien con dispositivos MaskROM — son demasiado "crudos" para el protocolo usbip. No intentaremos esa ruta más. Usaremos RKDevTool en Windows directamente, que ya funciona.
+
+PROBLEMA 2 — boot_merger no encuentra los archivos (error=2)
+El error es de directorio de trabajo. Lo estabas ejecutando desde tools/ pero las rutas del INI son relativas al root del repo. Fix:
+
+WSL:
+
+bash
+# Restaurar el INI al backup limpio primero
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+cp RKBOOT/RK3562MINIALL.ini.bak RKBOOT/RK3562MINIALL.ini
+
+# Aplicar el cambio LP3 de nuevo
+sed -i 's|rk3562_ddr_920MHz_v1.09.bin|rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin|g' \
+    RKBOOT/RK3562MINIALL.ini
+
+# Verificar
+grep "ddr" RKBOOT/RK3562MINIALL.ini
+
+# Compilar desde el ROOT del repo (no desde tools/)
+./tools/boot_merger RKBOOT/RK3562MINIALL.ini
+
+# Verificar tamaño — debe ser diferente al anterior (237K era el de 920MHz)
+ls -lh rk3562_spl_loader_v1.09.107.bin
+
+# Copiar a Windows con nombre descriptivo
+cp rk3562_spl_loader_v1.09.107.bin \
+    /mnt/c/Users/Victoria/Downloads/rk3562_loader_LP3_1332MHz.bin
+Si el tamaño cambia respecto al de 237K, la compilación fue exitosa.
+
+LUEGO — RKDevTool en Windows: probar el loader LP3
+Una vez que el dispositivo vuelva a aparecer como 2207:350d en Windows y tengas el nuevo .bin:
+
+Abre RKDevTool
+En la fila del loader (la primera línea, tipo Loader), carga rk3562_loader_LP3_1332MHz.bin
+Click Run o Download
+Observa el log — el mensaje de error cambiará o desaparecerá
+Pega aquí el resultado del boot_merger (el tamaño del .bin) y el log de RKDevTool tras probar el loader LP3.
+
+PS C:\WINDOWS\system32> # Liberar el dispositivo de usbipd
+PS C:\WINDOWS\system32> usbipd unbind --busid 1-1
+usbipd: info: Device with busid '1-1' was already not shared.
+PS C:\WINDOWS\system32>
+PS C:\WINDOWS\system32> # Verificar que quedó liberado
+PS C:\WINDOWS\system32> usbipd list
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+1-1    0000:0002  Dispositivo USB desconocido (Error de solicitud de descri...  Not shared
+1-4    04f2:b6e4  HP TrueVision HD Camera                                       Not shared
+1-5    0bda:b00c  Realtek Bluetooth 5 Adapter                                   Not shared
+Persisted:
+GUID                                  DEVICE
+0bd1eaab-5922-47cb-8c4d-0cc272bd3e57  Rockusb Device
+PS C:\WINDOWS\system32> usbipd list
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+1-1    0000:0002  Dispositivo USB desconocido (Error de solicitud de descri...  Not shared
+1-4    04f2:b6e4  HP TrueVision HD Camera                                       Not shared
+1-5    0bda:b00c  Realtek Bluetooth 5 Adapter                                   Not shared
+Persisted:
+GUID                                  DEVICE
+0bd1eaab-5922-47cb-8c4d-0cc272bd3e57  Rockusb Device
+PS C:\WINDOWS\system32> # Debe volver a aparecer: 2207:350d  Rockusb Device
+PS C:\WINDOWS\system32>
+
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/tools$ # Restaurar el INI al backup limpio primero
+cd /mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master/
+cp RKBOOT/RK3562MINIALL.ini.bak RKBOOT/RK3562MINIALL.ini
+# Aplicar el cambio LP3 de nuevo
+sed -i 's|rk3562_ddr_920MHz_v1.09.bin|rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin|g' \
+    RKBOOT/RK3562MINIALL.ini
+# Verificar
+grep "ddr" RKBOOT/RK3562MINIALL.ini
+# Compilar desde el ROOT del repo (no desde tools/)
+./tools/boot_merger RKBOOT/RK3562MINIALL.ini
+# Verificar tamaño — debe ser diferente al anterior (237K era el de 920MHz)
+ls -lh rk3562_spl_loader_v1.09.107.bin
+# Copiar a Windows con nombre descriptivo
+cp rk3562_spl_loader_v1.09.107.bin \
+    /mnt/c/Users/Victoria/Downloads/rk3562_loader_LP3_1332MHz.bin
+Path1=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+Path1=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+FlashData=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+FlashBoot=bin/rk35/rk3562_ddr_1332MHz_D3_LP3_eyescan_v1.09.bin
+********boot_merger ver 1.35********
+Info:Pack loader ok.
+creating new idblock from loader...
+idblock binary saving at idblock.img
+-rwxrwxrwx 1 victoria victoria 229K Jun 13 14:00 rk3562_spl_loader_v1.09.107.bin
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master$
+
+Mostrar más
+12:01 p.m.
+
+Orchestrated successful loader compilation and device recovery protocol
+Orchestrated successful loader compilation and device recovery protocol
+Compilación exitosa. El loader LP3 quedó en 229K vs 237K del anterior — el blob DDR es distinto, confirma que es un perfil diferente.
+
+Ahora el dispositivo sigue en estado de error USB por el bind fallido. Hay que recuperarlo físicamente.
+
+Paso 1 — Recuperar el dispositivo (físico)
+Desconecta el cable USB de la tablet completamente
+Si la tablet tiene batería conectada, mantenla así (no necesitas abrirla)
+Espera 10 segundos
+Vuelve a entrar en MaskROM: mantén presionado el botón de volumen o el pin MaskROM del PCB mientras conectas el USB
+Verifica en PowerShell Admin:
+powershell
+usbipd list
+# Debe volver a mostrar: 2207:350d  Rockusb Device  Not shared
+Si no aparece 2207:350d, abre el Administrador de dispositivos de Windows y busca en "Controladores de bus serie universal" — debe aparecer "Rockusb Device" o "RK3562".
+
+Paso 2 — Probar el loader LP3 en RKDevTool
+Una vez que el dispositivo aparezca correctamente:
+
+Abre RKDevTool
+Ve a la pestaña Download (o la que usas normalmente para cargar el loader)
+En la fila del loader, navega y selecciona:
+   C:\Users\Victoria\Downloads\rk3562_loader_LP3_1332MHz.bin
+Click Run
+Observa el log completo y pégalo aquí
+El resultado puede ser uno de tres:
+
+✅ Boot exitoso → el chip RAM es LPDDR3, seguimos con el unlock
+❌ Mismo error "check ddr" → el RAM no es LPDDR3, descartamos ese perfil
+❌ Error diferente → información nueva para diagnosticar
+Reconecta la tablet primero y cuéntame qué aparece en usbipd list.
+
+1781377540569_image.png
+1781377551868_image.png
+1781377562465_image.png
+1781377580924_image.png
+Hice lo que me dijiste y ahora me aparece como "found one loader device" en el programa, pero hice lo que me dijiste, puse en la pestaña de boot el .bin, le di a download y me dio ese error.
+Dime que hacer.
+Te adjunto imagenes del menu del programa
+Busca informacion relevante en internet
+
+12:08 p.m.
+
+Diagnosticó carga exitosa pero identificó configuración incorrecta de particiones
+Diagnosticó carga exitosa pero identificó configuración incorrecta de particiones
+Tengo todo lo que necesito para diagnosticar. Hay una buena y una mala noticia.
+
+✅ LA BUENA — El loader LP3 funcionó
+"Found One LOADER Device" significa que el DDR se inicializó correctamente. El chip RAM es LPDDR3. Este era el problema raíz desde el inicio — todos los loaders anteriores fallaban porque usaban perfiles LPDDR4/LPDDR4X incompatibles con el hardware.
+
+❌ EL ERROR — Usaste el tab y el botón incorrectos
+"Match device type failed" no es un problema de hardware. Ocurre porque en el tab Download Image presionaste el botón Download — ese botón es para descargar imágenes de particiones individuales con una tabla ya configurada. No es lo que necesitas.
+
+Lo que debes hacer AHORA en RKDevTool
+Paso 1 — Confirmar que el dispositivo está bien
+Con el dispositivo conectado en modo Loader (como lo tienes), en el tab Advanced Function:
+
+Click ReadChipInfo → debe mostrar RK3562
+Click ReadFlashInfo → debe mostrar la info de la eMMC Samsung 64GB
+Click ReadFlashID → muestra el ID del chip flash
+Pega aquí lo que aparezca en el log de la derecha.
+
+Paso 2 — El tab correcto para flashear es "Upgrade Firmware"
+Ves la imagen 3 que me mandaste — ese tab Upgrade Firmware es el flujo correcto para instalar un firmware completo. Funciona así:
+
+Upgrade Firmware tab
+  └─ Botón "Firmware" → seleccionar archivo update.img
+  └─ Botón "Upgrade"  → flashea todo
+El problema es que aún no tienes un update.img válido para el RK3562. Necesitamos conseguir o construir uno.
+
+Opciones para conseguir firmware
+Opción A — Firmware OEM de Lanix (ideal)
+Ahora que el loader LP3 funciona, puedes flashear el firmware original de Lanix si lo consigues. Busca en estas fuentes:
+
+4pda.to → buscar "Lanix RX10V6" o "Lanix Ilium RX10V6 firmware"
+gsm-forum.com → sección China tablets / Rockchip
+Contactar soporte Lanix directamente pidiendo el firmware
+Opción B — GSI (Generic System Image) para RK3562
+Con el loader LP3 funcionando puedes instalar una GSI de Android. En WSL:
+
+bash
+# Buscar GSIs compatibles con RK3562
+# El dispositivo usa Android con arquitectura arm64-v8a
+# Necesitas una GSI arm64 con vendor de Rockchip
+Siguiente paso inmediato
+Haz esto ahora mismo en RKDevTool con el dispositivo conectado:
+
+Tab Advanced Function
+Click ReadChipInfo y espera el resultado
+Click ReadFlashInfo y espera el resultado
+Mándame capturas del log de la derecha con esos resultados. Si ambos muestran información válida, el dispositivo está completamente accesible y podemos proceder con el flash.
+
+Get ChipInfo Start
+Chip Tag:
+33 35 36 32
+Image Chip Flag:
+-RK3562
+Get ChipInfo Success
+
+Get FlashInfo Start
+Manufacturer:
+SAMSUNG
+Flash Size:
+59632MB
+Total Sector:
+0x7478000
+Block Size:
+512KB
+Page Size:
+2KB
+ECC Bits:
+0
+Access Time:
+40
+Flash CS:
+0
+Get FlashInfo Success
+
+Get FlashID Start
+CSO: 45 4D 4D 43 20
+Get FlashID Success
+
+Mostrar menos
+12:11 p.m.
+
+Validated device access and charted firmware backup strategy
+Validated device access and charted firmware backup strategy
+✅ Acceso total confirmado
+Analizo los tres resultados:
+
+Dato	Valor	Significado
+Chip	RK3562	SoC correcto, comunicación perfecta
+Flash	Samsung 59632MB	eMMC 64GB accesible completamente
+Flash ID	45 4D 4D 43 = "EMMC" ASCII	Tipo de almacenamiento confirmado
+Loader	LP3 1332MHz	Este es el loader correcto para este dispositivo
+El dispositivo está 100% accesible. Ahora hay que hacer dos cosas en orden: backup y luego decidir qué flashear.
+
+PASO 1 — Backup del firmware actual (CRÍTICO, hacer primero)
+En Advanced Function tab, haz esto en orden:
+
+Click ExportImage
+Te pedirá Start y Count — pon estos valores:
+Start: 0
+Count: 0x7478000
+Selecciona destino: C:\Users\Victoria\Downloads\lanix_rx10v6_backup_completo.img
+Click OK y espera — son ~60GB, puede tardar bastante
+Si ExportImage no aparece o pide partición específica, usa en su lugar estos dos exports separados en el tab Download Image:
+
+Haz click derecho en la tabla → Read Back (o similar) para leer sectores específicos.
+
+PASO 2 — Guardar el loader LP3 como definitivo
+En WSL, asegúrate de tener este archivo guardado de forma permanente:
+
+bash
+# Crear carpeta de trabajo permanente
+mkdir -p ~/lanix_rx10v6/loaders
+
+# Guardar el loader que funcionó
+cp /mnt/c/Users/Victoria/Downloads/rk3562_loader_LP3_1332MHz.bin \
+   ~/lanix_rx10v6/loaders/rk3562_loader_FUNCIONAL_LP3.bin
+
+# Verificar
+ls -lh ~/lanix_rx10v6/loaders/
+PASO 3 — Decidir qué instalar
+Ahora que tienes acceso completo, hay tres rutas. ¿Cuál es tu objetivo principal?
+
+Opción A — Solo root (más rápido, menor riesgo)
+
+Exportar partición boot
+Parchearla con Magisk
+Escribirla de vuelta
+El sistema Android original queda intacto
+Opción B — GSI Android (sistema nuevo, mantiene drivers OEM)
+
+Flashear una GSI arm64 de Android 13/14 en la partición system
+Requiere que el dispositivo tenga partición vendor separada (Project Treble)
+Necesitamos verificar si este RK3562 soporta Treble
+Opción C — Firmware OEM de Lanix (restaurar/actualizar)
+
+Necesitas conseguir el .img de Lanix
+Flashear via Upgrade Firmware tab
+Dime qué objetivo tienes y procedemos directamente. El acceso ya está garantizado con el loader LP3.
+
+Hice lo que me dijiste y me dio el error "Export Image Failed", igual no me importa mucho esta tablet.
+
+Me gustaria seguir con la opcion B, o instalar otro sistema, quiero un inicio limpio para que la tablet corra mejor, aparte quiero root y todas las herramientas, quiero poder modificar todo.
+
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master$ # Crear carpeta de trabajo permanente
+mkdir -p ~/lanix_rx10v6/loaders
+# Guardar el loader que funcionó
+cp /mnt/c/Users/Victoria/Downloads/rk3562_loader_LP3_1332MHz.bin \
+   ~/lanix_rx10v6/loaders/rk3562_loader_FUNCIONAL_LP3.bin
+# Verificar
+ls -lh ~/lanix_rx10v6/loaders/
+total 232K
+-rwxr-xr-x 1 victoria victoria 229K Jun 13 14:13 rk3562_loader_FUNCIONAL_LP3.bin
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master$
+
+Mostrar más
+12:15 p.m.
+
+Mapeó estrategia para flashear firmware limpio y rootear tablet RK3562
+Mapeó estrategia para flashear firmware limpio y rootear tablet RK3562
+La búsqueda me dio información crítica. Hay un post de XDA de hace una semana de alguien con exactamente la misma situación — RK3562 Android 15, intentando root. Eso confirma que la ruta existe. Aquí está el plan completo.
+
+El problema real: necesitas dos cosas antes de flashear
+1. Un archivo update.img compatible con RK3562 (el firmware a instalar)
+2. El método correcto de flash — no el botón Download, sino Upgrade Firmware
+
+Primero vamos a instalar upgrade_tool en WSL que es mucho más potente que RKDevTool para leer el estado actual del dispositivo.
+
+PASO 1 — WSL: Instalar upgrade_tool
+bash
+cd ~/lanix_rx10v6
+
+# Descargar upgrade_tool de Rockchip para Linux
+wget https://raw.githubusercontent.com/rockchip-linux/tools/master/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool_v2.1.zip 2>/dev/null || \
+wget -O upgrade_tool.zip "https://github.com/rockchip-linux/tools/raw/master/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool_v2.1.zip"
+
+# Si no existe ese link exacto, descargarlo manualmente:
+# https://github.com/rockchip-linux/tools → Linux_Upgrade_Tool
+# Moverlo a: /mnt/c/Users/Victoria/Downloads/ y copiarlo desde ahí
+
+# Extraer y preparar
+unzip upgrade_tool.zip -d upgrade_tool/
+cd upgrade_tool/
+chmod +x upgrade_tool
+ls -lh
+Si el wget falla (dominio bloqueado), dime y te doy el método alternativo.
+
+PASO 2 — WSL: Leer partición actual del dispositivo
+Con el dispositivo en modo LOADER (como lo tienes):
+
+bash
+cd ~/lanix_rx10v6/upgrade_tool/
+
+# Cargar el loader LP3 que funciona
+sudo ./upgrade_tool db ~/lanix_rx10v6/loaders/rk3562_loader_FUNCIONAL_LP3.bin
+
+# Leer tabla de particiones
+sudo ./upgrade_tool pl
+
+# Leer info del dispositivo
+sudo ./upgrade_tool di
+Esto me dirá el esquema de particiones exacto (A-only vs A/B, nombres de particiones, tamaños).
+
+PASO 3 — Buscar firmware RK3562
+Mientras tanto, en el navegador de Windows busca esto en orden:
+
+Búsqueda 1 — 4PDA (mejor fuente para China tablets):
+
+https://4pda.to/forum/index.php?act=findpost&st=0&f=63&q=RK3562
+Búsqueda 2 — Firmware genérico de tablets chinas con RK3562:
+
+site:4pda.to RK3562 firmware прошивка
+Lo que buscas: un archivo llamado update.img o xxx_RK3562_Android_xx.img de cualquier tablet china con RK3562. El fabricante no importa — con tu loader LP3 puedes flashear cualquier firmware RK3562 genérico.
+
+PASO 4 — Flash via Upgrade Firmware (cuando tengas el .img)
+Una vez que tengas el update.img:
+
+Abre RKDevTool
+Tab Upgrade Firmware
+Click Firmware → seleccionar el update.img
+Espera que cargue (mostrará versión y info del firmware)
+Click Upgrade
+PASO 5 — Root post-flash con Magisk
+Después del flash limpio, el root en RK3562 se hace así:
+
+bash
+# WSL: Extraer la partición init_boot (o boot según la versión de Android)
+sudo ./upgrade_tool db ~/lanix_rx10v6/loaders/rk3562_loader_FUNCIONAL_LP3.bin
+sudo ./upgrade_tool rl 0xSECTOR 0xCOUNT ~/lanix_rx10v6/init_boot_original.img
+
+# El SECTOR y COUNT los obtenemos del paso 2 (tabla de particiones)
+Luego se parchea con Magisk en la app de Android y se reflashea.
+
+Ejecuta el Paso 1 y pega el resultado. Si wget falla por restricción de red, dímelo y te doy el .zip por otra vía.
+
+
+4PDA AyudaNormas de derechoBuscar Inició sesión como: israleche ( Salir ) Android iOS Otros Útil Dispositivos Base de conocimientos Menciones · Mensajes · Favoritos · Menú de usuario > 4PDA > Formulario de búsqueda > Buscar Datos de búsqueda Palabras clave Inicio de sesión del a
+
+pasted
+
+
+victoria@DESKTOP-31CGA41:/mnt/c/Users/Victoria/Downloads/rkbin-master/rkbin-master$ cd ~/lanix_rx10v6 # Descargar upgrade_tool de Rockchip para Linux wget https://raw.githubusercontent.com/rockchip-linux/tools/master/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool_v2.1.zip 2>/dev/null || \ wget -O up
+
+pasted
+
+Encontre todo eso.
+
+12:26 p.m.
+
+Rastreó herramientas y firmware compatible para dispositivos RK3562
+Rastreó herramientas y firmware compatible para dispositivos RK3562
+Encontré exactamente lo que necesitamos. Hay dos hallazgos clave en esos resultados:
+
+Hallazgo 1 — rkDumper soporta RK3562 (Windows, sin WSL)
+En el post de 4PDA de RedScorpio dice literalmente:
+
+1.1.2.1 (15.09.2023) + RK3562;
+
+Esta herramienta corre directo en Windows, no necesita WSL, y puede dumpearse el firmware por particiones automáticamente. Descárgala desde el post de 4PDA.
+
+Ve a este enlace en el navegador:
+
+https://4pda.to/forum/index.php?showtopic=35189093
+Descarga el archivo adjunto rkDumper_1.1.2.1.zip.
+
+Hallazgo 2 — Firmware Doogee U10 PRO con RK3562 disponible
+El Doogee U10 PRO usa exactamente RK3562 + Android 13. Hay dos versiones de firmware en Google Drive. Ve al hilo:
+
+https://4pda.to/forum/index.php?showtopic=131861089
+Busca el post de smold2 (20/08/24) — tiene los links de Google Drive para:
+
+DOOGEE_RK1S_RU_RK1S_U10-Pro_rk3562_t_user_20240718.1811 ← esta es la más reciente
+Descarga ese archivo. Es un update.img flasheable directo desde RKDevTool → Upgrade Firmware.
+
+PASO 1 — WSL: Arreglar upgrade_tool (link correcto)
+El repo cambió de estructura. Prueba este:
+
+bash
+cd ~/lanix_rx10v6
+sudo apt install unzip -y
+
+# Link correcto actualizado
+wget -O upgrade_tool.zip \
+  "https://github.com/rockchip-linux/tools/raw/refs/heads/master/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool_v2.1.zip"
+
+# Alternativa si falla:
+wget -O upgrade_tool.zip \
+  "https://raw.githubusercontent.com/rockchip-linux/tools/refs/heads/master/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool_v2.1.zip"
+
+ls -lh upgrade_tool.zip
+PASO 2 — Windows: Usar rkDumper para leer particiones actuales
+Una vez descargado rkDumper_1.1.2.1.zip:
+
+Extráelo en C:\Users\Victoria\Downloads\rkDumper\
+Con el dispositivo conectado en modo LOADER (como lo tienes ahora)
+Ejecuta rkDumper.exe como administrador
+Debe detectar el dispositivo automáticamente y listar particiones
+Crea una carpeta C:\Users\Victoria\Downloads\lanix_dump\ y apunta el output ahí
+Esto nos da el mapa completo de particiones y posiblemente un dump de cada una.
+
+PASO 3 — Windows: Flash del firmware Doogee cuando lo tengas
+Con el update.img del Doogee descargado:
+
+RKDevTool → tab Upgrade Firmware
+Click Firmware → seleccionar el update.img del Doogee
+Espera que cargue (debe mostrar versión Android 13 y chip RK3562)
+Click Upgrade
+⚠️ El firmware del Doogee funcionará para arrancar el sistema — RK3562 es el mismo SoC. Algunas cosas pueden no funcionar (cámara, resolución de pantalla si difiere) pero tendrás Android 13 limpio y funcional como base para rootear.
+
+Dime qué encontraste en los dos links de 4PDA y si el wget del upgrade_tool funcionó.
+
+
+
+Se quedó sin mensajes gratuitos hasta 4:20 p.m.
+Claude Fable 5 is currently unavailable.
+Más información(opens in new tab)
+
+
+
+
+Claude es IA y puede cometer errores. Por favor, verifica nuevamente las respuestas.
+
+
+
+
