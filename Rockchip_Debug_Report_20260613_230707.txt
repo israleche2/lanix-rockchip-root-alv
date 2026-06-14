@@ -1,0 +1,176 @@
+﻿**********************
+Inicio de la transcripción de Windows PowerShell
+Hora de inicio: 20260613230707
+Nombre de usuario: DESKTOP-31CGA41\Victoria
+Usuario RunAs: DESKTOP-31CGA41\Victoria
+Nombre de la configuración: 
+Máquina: DESKTOP-31CGA41 (Microsoft Windows NT 10.0.22621.0)
+Aplicación host: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+Id. de proceso: 8516
+PSVersion: 5.1.22621.4249
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.22621.4249
+BuildVersion: 10.0.22621.4249
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+PS C:\WINDOWS\system32> Write-Host "=== 1. INFORMACIÓN DEL SISTEMA ===" -ForegroundColor Cyan
+=== 1. INFORMACIÓN DEL SISTEMA ===
+PS C:\WINDOWS\system32> $PSVersionTable.PSVersion
+
+Major  Minor  Build  Revision
+-----  -----  -----  --------
+5      1      22621  4249
+
+
+PS C:\WINDOWS\system32> systeminfo | findstr /B /C:"OS Name" /C:"OS Version" /C:"System Type"
+
+PS C:\WINDOWS\system32> Write-Host "`n=== 2. ESTADO DEL SERVICIO USBIPD ===" -ForegroundColor Cyan
+
+=== 2. ESTADO DEL SERVICIO USBIPD ===
+PS C:\WINDOWS\system32> Get-Service usbipd | Select-Object Name, Status, StartType
+
+Name    Status StartType
+----    ------ ---------
+usbipd Running    Manual
+
+
+PS C:\WINDOWS\system32> usbipd version
+'version' was not matched. Did you mean one of the following?
+--version
+
+Required command was not provided.
+Unrecognized command or argument 'version'.
+
+usbipd-win 5.3.0
+
+Description:
+  Shares locally connected USB devices to other machines, including Hyper-V guests and WSL 2.
+
+Usage:
+  usbipd [command] [options]
+
+Options:
+  -?, -h, --help  Show help and usage information
+  --version       Show version information
+
+Commands:
+  attach   Attach a USB device to a client
+  bind     Bind device
+  detach   Detach a USB device from a client
+  license  Display license information
+  list     List USB devices
+  policy   Manage policy rules
+  server   Run the server on the console
+  state    Output state in JSON
+  unbind   Unbind device
+PS C:\WINDOWS\system32> Write-Host "`n=== 3. DISPOSITIVOS USBIPD (VINCULADOS Y ADJUNTOS) ===" -ForegroundColor Cyan
+
+=== 3. DISPOSITIVOS USBIPD (VINCULADOS Y ADJUNTOS) ===
+PS C:\WINDOWS\system32> usbipd list
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+1-2    2207:350d  Rockusb Device                                                Attached
+1-4    04f2:b6e4  HP TrueVision HD Camera                                       Not shared
+1-5    0bda:b00c  Realtek Bluetooth 5 Adapter                                   Not shared
+
+Persisted:
+GUID                                  DEVICE
+PS C:\WINDOWS\system32> Write-Host "--- Dispositivos adjuntos a WSL ---"
+--- Dispositivos adjuntos a WSL ---
+PS C:\WINDOWS\system32> usbipd wsl list
+usbipd: error: The 'wsl' subcommand has been removed. Learn about the new syntax at https://learn.microsoft.com/windows/
+wsl/connect-usb#attach-a-usb-device.
+PS C:\WINDOWS\system32> Write-Host "`n=== 4. RECONOCIMIENTO EN EL ADMINISTRADOR DE DISPOSITIVOS (WINDOWS) ===" -ForegroundColor Cyan
+
+=== 4. RECONOCIMIENTO EN EL ADMINISTRADOR DE DISPOSITIVOS (WINDOWS) ===
+PS C:\WINDOWS\system32> # Busca VID de Rockchip (2207), Google/Fastboot (18D1) o HTC (0BB4)
+PS C:\WINDOWS\system32> Get-PnpDevice -Class USB -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match "2207|18D1|0BB4" } | Select-Object FriendlyName, InstanceId, Status | Format-Table -AutoSize
+
+FriendlyName        InstanceId                          Status
+------------        ----------                          ------
+USBIP Shared Device USB\VID_2207&PID_350D\6&3580202&0&2 OK
+
+
+PS C:\WINDOWS\system32> Write-Host "`n=== 5. AUDITORÍA DE ARCHIVOS CRÍTICOS EN WINDOWS ===" -ForegroundColor Cyan
+
+=== 5. AUDITORÍA DE ARCHIVOS CRÍTICOS EN WINDOWS ===
+PS C:\WINDOWS\system32> $CriticalFiles = @(
+    "C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\bin\rk35\rk3562_ddr_1056MHz_v1.09.bin",
+    "C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\bin\rk35\rk3562_usbplug_v1.04.bin",
+    "C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\tools\boot_merger",
+    "C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\tools\upgrade_tool",
+    "C:\Users\Victoria\Desktop\lanix_rescue",
+    "C:\Users\Victoria\Downloads\RKDevTool_Release_v2.96_zh\RKDevTool_Release_v2.96\RKDevTool.exe",
+    "C:\Users\Victoria\Downloads\rkDumper_1.1.2.1\rkDumper.exe"
+)
+PS C:\WINDOWS\system32> foreach ($File in $CriticalFiles) {
+    if (Test-Path $File) {
+        $Item = Get-Item $File
+        $Size = if ($Item.PSIsContainer) { "CARPETA" } else { "$([math]::Round($Item.Length / 1KB, 2)) KB" }
+        Write-Host "[OK] $File ($Size)" -ForegroundColor Green
+    } else {
+        Write-Host "[FALTA] $File" -ForegroundColor Red
+    }
+}
+[OK] C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\bin\rk35\rk3562_ddr_1056MHz_v1.09.bin (57.58 KB)
+[OK] C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\bin\rk35\rk3562_usbplug_v1.04.bin (87.82 KB)
+[OK] C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\tools\boot_merger (2503.52 KB)
+[OK] C:\Users\Victoria\Downloads\rkbin-master\rkbin-master\tools\upgrade_tool (6292.73 KB)
+[OK] C:\Users\Victoria\Desktop\lanix_rescue (CARPETA)
+[OK] C:\Users\Victoria\Downloads\RKDevTool_Release_v2.96_zh\RKDevTool_Release_v2.96\RKDevTool.exe (1211.5 KB)
+[OK] C:\Users\Victoria\Downloads\rkDumper_1.1.2.1\rkDumper.exe (146 KB)
+PS C:\WINDOWS\system32> Write-Host "`n=== 6. DIAGNÓSTICO DENTRO DE WSL (UBUNTU) ===" -ForegroundColor Cyan
+
+=== 6. DIAGNÓSTICO DENTRO DE WSL (UBUNTU) ===
+PS C:\WINDOWS\system32> $WslCommands = @"
+echo '--- Versión de WSL ---'
+wsl -l -v
+echo ''
+echo '--- Dispositivos USB visibles en Linux (Buscando VID 2207) ---'
+lsusb | grep -iE '2207|rockchip' || echo ' NINGÚN DISPOSITIVO ROCKCHIP DETECTADO EN WSL'
+echo ''
+echo '--- Permisos de puertos USB en Linux ---'
+ls -l /dev/bus/usb/001/ 2>/dev/null | grep -i '2207' || echo 'No se encontraron permisos específicos para 2207'
+echo ''
+echo '--- Herramientas compiladas/instaladas en WSL ---'
+which rkdeveloptool && rkdeveloptool --version || echo ' rkdeveloptool no encontrado en PATH'
+which boot_merger || echo ' boot_merger no encontrado en PATH'
+echo ''
+echo '--- Archivos .bin generados recientemente en el home de WSL ---'
+find ~ -maxdepth 3 -name "*.bin" -type f -exec ls -lh {} \; 2>/dev/null | grep -iE 'loader|ddr|usbplug' || echo 'No se encontraron loaders generados en el home'
+"@
+PS C:\WINDOWS\system32> # Ejecutar los comandos en WSL
+PS C:\WINDOWS\system32> wsl -e bash -c $WslCommands
+--- Versión de WSL ---
+bash: line 2: wsl: command not found
+
+--- Dispositivos USB visibles en Linux (Buscando VID 2207) ---
+Bus 001 Device 002: ID 2207:350d Fuzhou Rockchip Electronics Company
+
+--- Permisos de puertos USB en Linux ---
+No se encontraron permisos específicos para 2207
+
+--- Herramientas compiladas/instaladas en WSL ---
+/usr/local/bin/rkdeveloptool
+rkdeveloptool ver 1.32
+ boot_merger no encontrado en PATH
+
+--- Archivos .bin generados recientemente en el home de WSL ---
+No se encontraron loaders generados en el home
+PS C:\WINDOWS\system32> Write-Host "`n=== 7. ESTADO DE RKDEVTOOL (Si está abierto) ===" -ForegroundColor Cyan
+
+=== 7. ESTADO DE RKDEVTOOL (Si está abierto) ===
+PS C:\WINDOWS\system32> Get-Process -Name "RKDevTool" -ErrorAction SilentlyContinue | Select-Object ProcessName, Id, Path | Format-Table -AutoSize
+PS C:\WINDOWS\system32> if (-not (Get-Process -Name "RKDevTool" -ErrorAction SilentlyContinue)) {
+    Write-Host "RKDevTool no se está ejecutando actualmente." -ForegroundColor Yellow
+}
+RKDevTool no se está ejecutando actualmente.
+PS C:\WINDOWS\system32> # Finalizar la transcripción
+PS C:\WINDOWS\system32> Stop-Transcript
+**********************
+Fin de la transcripción de Windows PowerShell
+Hora de finalización: 20260613230715
+**********************
